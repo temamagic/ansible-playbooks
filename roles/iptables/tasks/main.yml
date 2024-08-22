@@ -1,0 +1,73 @@
+---
+- name: Add Ubuntu Security Proposed Repository
+  apt_repository:
+    repo: 'ppa:ubuntu-security-proposed/ppa'
+    state: present
+
+- name: Update apt
+  apt:
+      upgrade: no
+      update_cache: yes
+      cache_valid_time: 86400 #One day
+
+- name: Install IPTables + Persistence + IPSet
+  apt:
+    name: "{{ item }}"
+    state: latest
+  with_items:
+    - iptables
+    - iptables-persistent
+    - ipset
+
+- name: Fetch Cloudflare IPs
+  uri:
+    url: https://www.cloudflare.com/ips-v4
+    return_content: true
+  register: cloudflare_ips
+
+- name: debug
+  debug:
+    var: cloudflare_ips.content
+
+- name: Split Cloudflare IPs into a list
+  set_fact:
+    cloudflare_ips_list: "{{ cloudflare_ips.content.split('\n') }}"
+
+- name: debug
+  debug:
+    var: cloudflare_ips_list
+
+- name: Check if cloudflare_ips ipset exists
+  shell: ipset list cloudflare_ips
+  register: ipset_exists
+  ignore_errors: yes
+
+- name: Create cloudflare_ips ipset if it does not exist
+  when: ipset_exists.rc != 0
+  shell: ipset create cloudflare_ips hash:net family inet hashsize 1024 maxelem 65536 bucketsize 12 initval 0xcb78577e
+
+- name: Flush cloudflare_ips ipset if it exists
+  when: ipset_exists.rc == 0
+  shell: ipset flush cloudflare_ips
+
+- name: Write IPTables ipset from template
+  template:
+    src: cloudflare_ipsets.j2
+    dest: /etc/iptables/cloudflare_ipsets
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Apply IPTables ipset
+  shell: ipset restore < /etc/iptables/cloudflare_ipsets
+
+- name: Write IPTables ruleset from template
+  template:
+      src: iptables_default.j2
+      dest: /etc/iptables/rules.v4
+      owner: root
+      group: root
+      mode: '0644'
+
+- name: Apply IPTables rules
+  shell: iptables-restore < /etc/iptables/rules.v4

@@ -1,0 +1,28 @@
+#!/bin/sh
+
+echo "Running pre-commit hook..."
+
+# Run make encrypt
+make encrypt
+
+# Capture the return value of the make command
+MAKE_RESULT=$?
+
+# Check the return value
+if [ $MAKE_RESULT -ne 0 ]; then
+  echo "Error: make encrypt failed. Commit aborted."
+  exit 1
+fi
+
+# Re-add all files to staging area after encryption
+git add .
+
+# Check if the re-addition was successful
+ADD_RESULT=$?
+if [ $ADD_RESULT -ne 0 ]; then
+  echo "Error: git add failed. Commit aborted."
+  exit 1
+fi
+
+echo "pre-commit hook completed successfully."
+exit 0

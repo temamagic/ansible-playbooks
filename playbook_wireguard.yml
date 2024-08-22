@@ -1,0 +1,105 @@
+---
+- name: Configure wireguard
+  hosts: all
+  become: true
+  vars:
+    network_name: "wg0"
+  tasks:
+    - name: Remote info
+      debug:
+        msg: "{{ inventory_hostname }} = {{ ansible_default_ipv4.address }} - {{ ansible_hostname }}"
+
+    - name: Show WireGuard local IP
+      debug:
+        msg: "WireGuard local IP for {{ inventory_hostname }} is {{ hostvars[inventory_hostname].wg_local_ip }}"
+
+    - name: Install wireguard
+      ansible.builtin.package:
+          name: "{{ item }}"
+          state: present
+      with_items:
+          - wireguard
+          - wireguard-tools
+
+    - name: Check if private key exists
+      ansible.builtin.stat:
+        path: /etc/wireguard/private.key
+      register: private_key_stat
+
+    - name: Create private key if not exists
+      ansible.builtin.shell:
+        cmd: wg genkey | tee /etc/wireguard/private.key
+      when: not private_key_stat.stat.exists
+
+    - name: Set permissions for private key for security
+      ansible.builtin.file:
+        path: /etc/wireguard/private.key
+        mode: '0600'
+      when: private_key_stat.stat.exists
+
+
+    - name: Read private key
+      ansible.builtin.slurp:
+        src: /etc/wireguard/private.key
+      register: private_key
+
+    - name: Check if public key exists
+      ansible.builtin.stat:
+        path: /etc/wireguard/public.key
+      register: public_key_stat
+
+    - name: Create public key if not exists
+      ansible.builtin.shell:
+        cmd: cat /etc/wireguard/private.key | wg pubkey | tee /etc/wireguard/public.key
+      when: not public_key_stat.stat.exists
+
+    - name: Read public key
+      ansible.builtin.slurp:
+        src: /etc/wireguard/public.key
+      register: public_key
+
+    - name: Enable IP forwarding
+      ansible.builtin.lineinfile:
+        path: /etc/sysctl.conf
+        regexp: '^net.ipv4.ip_forward'
+        line: 'net.ipv4.ip_forward=1'
+        state: present
+
+    - name: Apply sysctl changes
+      ansible.builtin.shell:
+          cmd: sysctl -p
+
+    - name: Create WireGuard config files
+      ansible.builtin.template:
+        src: wg.conf
+        dest: "/etc/wireguard/{{ network_name }}.conf"
+      vars:
+        private_key: "{{ private_key['content'] | b64decode }}"
+        local_ip: "{{ hostvars[inventory_hostname].wg_local_ip }}"
+        peers: "{{ groups['all'] | difference([inventory_hostname]) }}"
+
+    - name: Bring down WireGuard network if already up
+      ansible.builtin.shell:
+        cmd: wg-quick down {{ network_name }}
+      ignore_errors: true
+
+    - name: Start WireGuard
+      ansible.builtin.shell:
+          cmd: wg-quick up {{ network_name }}
+
+    - name: Enable wireguard
+      ansible.builtin.systemd:
+        name: "wg-quick@{{ network_name }}"
+        enabled: yes
+        state: started
+
+    - name: Ping peers
+      ansible.builtin.ping:
+      register: ping_result
+      with_items: "{{ groups['all'] | difference([inventory_hostname]) }}"
+      failed_when: ping_result is failed
+
+    - name: Fail if any peer is unreachable
+      ansible.builtin.fail:
+        msg: "One or more peers are unreachable."
+      when: ping_result is failed

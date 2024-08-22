@@ -1,0 +1,20 @@
+---
+all:
+  hosts:
+    general:
+      ansible_connection: ssh
+      ansible_python_interpreter: /usr/bin/python3
+      ansible_host: 123.456.789.0
+      wg_local_ip: "10.0.0.1"
+      ansible_port: 22
+      ansible_user: admin
+      ansible_ssh_private_key_file: ./private/keys/key
+    db1:
+      ansible_connection: ssh
+      ansible_python_interpreter: /usr/bin/python3
+      ansible_host: 234.567.89.0
+      wg_local_ip: "10.0.0.2"
+      ansible_port: 22
+      ansible_user: admin
+      ansible_ssh_private_key_file: ./private/keys/key
+

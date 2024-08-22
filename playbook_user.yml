@@ -1,0 +1,8 @@
+---
+- name: Configure admin user
+  hosts: all
+  become: yes
+  vars_files:
+    - ./group_vars/vault.yml
+  roles:
+    - { role: create-user, username: admin }
